@@ -22,6 +22,7 @@ SULID is based on the ULID (Universally Unique Lexicographically Sortable Identi
 
 SULIDs have a unique structure comprising the following parts, adding up to a 128-bit identifier:
 
+### Version1
 1. **Timestamp**: 48 bits, representing the epoch time in milliseconds.
 2. **Random Number**: 70 bits of randomness to ensure uniqueness within the same millisecond.
 3. **Data Center ID**: 5 bits, identifying the data center.
@@ -31,6 +32,17 @@ Here is a visual breakdown of the SULID format:
 
 ```
 | 48-bit Timestamp | 70-bit Random Number | 5-bit Data Center ID | 5-bit Machine ID |
+```
+
+### Version2
+1. **Timestamp**: 48 bits, representing the epoch time in milliseconds.
+2. **Random Number**: 70 bits of randomness to ensure uniqueness within the same millisecond.
+3. **Worker ID**: 10 bits, the combination of data_center_id and machine_id.
+
+Here is a visual breakdown of the SULID format:
+
+```
+| 48-bit Timestamp | 70-bit Random Number | 10-bit Worker ID |
 ```
 
 
@@ -51,11 +63,18 @@ Here's how you can use the `SulidGenerator` in your project:
 use sulid::SulidGenerator;
 
 fn main() {
-    let generator = SulidGenerator::new(1, 1);
+    let generator = SulidGenerator::v1_new(1, 1);
 
-    for _ in 0..5 {
+    for _ in 0..3 {
         let id = generator.generate();
-        println!("SULID: {}", id);
+        println!("SULID-V1: {}", id);
+    }
+
+    let generator = SulidGenerator::v2_new(1);
+
+    for _ in 0..3 {
+        let id = generator.generate();
+        println!("SULID-V2: {}", id);
     }
 }
 ```
@@ -65,11 +84,12 @@ fn main() {
 Running the example code generates SULIDs such as:
 
 ```
-SULID: 01J75J83RH36YXGGGWCS8JBP11
-SULID: 01J75J83RHEXCA2NH96PDDJQ11
-SULID: 01J75J83RHAFMZ86CBFRHTKN11
-SULID: 01J75J83RHRYCTWD1QKRCJGQ11
-SULID: 01J75J83RHMRDSRAW5KSN99V11
+SULID-V1: 01J75Y6K09Q0VD4D7HCF496K11
+SULID-V1: 01J75Y6K09ZGD0ATFGNJ7TWZ11
+SULID-V1: 01J75Y6K09DWG2RPNEXNYSRP11
+SULID-V2: 01J75Y6K09FVT8QTQVYGSDJ401
+SULID-V2: 01J75Y6K0A16WE3XQN92QPP701
+SULID-V2: 01J75Y6K0AN12FBKX56YGZF301
 ```
 
 ## Benefits

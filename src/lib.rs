@@ -27,6 +27,7 @@
 //!
 //! SULIDs have a unique structure comprising the following parts, adding up to a 128-bit identifier:
 //!
+//! ### Version1
 //! 1. **Timestamp**: 48 bits, representing the epoch time in milliseconds.
 //! 2. **Random Number**: 70 bits of randomness to ensure uniqueness within the same millisecond.
 //! 3. **Data Center ID**: 5 bits, identifying the data center.
@@ -36,6 +37,17 @@
 //!
 //! ```
 //! | 48-bit Timestamp | 70-bit Random Number | 5-bit Data Center ID | 5-bit Machine ID |
+//! ```
+//!
+//! ### Version2
+//! 1. **Timestamp**: 48 bits, representing the epoch time in milliseconds.
+//! 2. **Random Number**: 70 bits of randomness to ensure uniqueness within the same millisecond.
+//! 3. **Worker ID**: 10 bits, the combination of data_center_id and machine_id.
+//!
+//! Here is a visual breakdown of the SULID format:
+//!
+//! ```
+//! | 48-bit Timestamp | 70-bit Random Number | 10-bit Worker ID |
 //! ```
 //!
 //! ## Usage
@@ -53,14 +65,24 @@
 //! use sulid::SulidGenerator;
 //!
 //! fn main() {
-//!     let generator = SulidGenerator::new(1, 1);
+//!     let generator = SulidGenerator::v1_new(1, 1);
 //!
-//!     for _ in 0..5 {
+//!     for _ in 0..3 {
 //!         #[cfg(feature = "std")]
 //!         let id = generator.generate();
 //!         #[cfg(not(feature = "std"))]
 //!         let id = generator.generate(1, 1);
-//!         println!("SULID: {}", id);
+//!         println!("SULID-V1: {}", id);
+//!     }
+//!
+//!     let generator = SulidGenerator::v2_new(1);
+//!
+//!     for _ in 0..3 {
+//!         #[cfg(feature = "std")]
+//!         let id = generator.generate();
+//!         #[cfg(not(feature = "std"))]
+//!         let id = generator.generate(1, 1);
+//!         println!("SULID-V2: {}", id);
 //!     }
 //! }
 //! ```
