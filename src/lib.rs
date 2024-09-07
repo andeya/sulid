@@ -56,7 +56,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! sulid = "0.1.0"
+//! sulid = "0.6"
 //! ```
 //!
 //! Then, you can generate SULIDs as follows:
