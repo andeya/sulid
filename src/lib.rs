@@ -67,6 +67,9 @@
 
 pub use generator::SulidGenerator;
 pub use sulid::Sulid;
+// Republic ULID
+pub use ulid;
 pub use ulid::{DecodeError, EncodeError, ULID_LEN};
+
 mod generator;
 pub(crate) mod sulid;
