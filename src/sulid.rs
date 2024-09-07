@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
-//! # sulid-rs
+//! # sulid
 //!
 //! This is a Rust implementation of the SULID (Snowflake-inspired Universally Unique Lexicographically Sortable Identifier).
 //!

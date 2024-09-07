@@ -23,9 +23,9 @@ SULID is based on the ULID (Universally Unique Lexicographically Sortable Identi
 SULIDs have a unique structure comprising the following parts, adding up to a 128-bit identifier:
 
 1. **Timestamp**: 48 bits, representing the epoch time in milliseconds.
-2. **Data Center ID**: 5 bits, identifying the data center.
-3. **Machine ID**: 5 bits, identifying the machine within the data center.
-4. **Random Number**: 70 bits of randomness to ensure uniqueness within the same millisecond.
+2. **Random Number**: 70 bits of randomness to ensure uniqueness within the same millisecond.
+3. **Data Center ID**: 5 bits, identifying the data center.
+4. **Machine ID**: 5 bits, identifying the machine within the data center.
 
 Here is a visual breakdown of the SULID format:
 
@@ -40,7 +40,7 @@ To use SULID, add the following dependencies to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-sulid = "0.1.0"
+sulid = "0.5"
 ```
 
 ## Usage
