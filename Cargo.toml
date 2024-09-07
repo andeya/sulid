@@ -1,0 +1,27 @@
+[package]
+name = "sulid"
+version = "0.1.0"
+edition = "2021"
+authors = ["Andeya Lee <andeyalee@outlook.com>"]
+description = "SULID is a unique ID generation algorithm that combines the benefits of ULID and Snowflake."
+license = "MIT"
+
+[dependencies]
+rand = { version = "0.8", optional = true }
+ulid = { version = "1.0", default-features = false }
+
+[features]
+default = ["std"]
+# default = []
+std = ["ulid/std", "dep:rand"]
+assert = []
+
+[target.wasm32-unknown-unknown.dependencies.getrandom]
+version = "0.2"
+features = ["js"]
+
+[target.wasm32-unknown-unknown.dependencies.web-time]
+version = "1"
+
+[target.wasm32-unknown-unknown.dev-dependencies.wasm-bindgen-test]
+version = "0.3"
