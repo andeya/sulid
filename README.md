@@ -52,7 +52,7 @@ To use SULID, add the following dependencies to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-sulid = "0.5"
+sulid = "0.6"
 ```
 
 ## Usage
