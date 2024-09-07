@@ -35,7 +35,7 @@
 //! Here is a visual breakdown of the SULID format:
 //!
 //! ```
-//! | 48-bit Timestamp | 5-bit Data Center ID | 5-bit Machine ID | 70-bit Random Number |
+//! | 48-bit Timestamp | 70-bit Random Number | 5-bit Data Center ID | 5-bit Machine ID |
 //! ```
 //!
 //! ## Usage
