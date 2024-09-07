@@ -1,11 +1,12 @@
 [package]
 name = "sulid"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 authors = ["Andeya Lee <andeyalee@outlook.com>"]
 description = "SULID is a unique ID generation algorithm that combines the benefits of ULID and Snowflake."
 license = "MIT"
 readme = "README.md"
+documentation = "https://docs.rs/sulid"
 repository = "https://github.com/andeya/sulid"
 
 [dependencies]
