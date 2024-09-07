@@ -2,6 +2,11 @@
 
 SULID is a unique ID generation algorithm that combines the benefits of ULID and Snowflake. It offers a highly efficient, reliable, and lexicographically sortable identifier, which ensures uniqueness across multiple data centers and machines, making it ideal for high-concurrency distributed environments.
 
+[![Crates.io](https://img.shields.io/crates/v/sulid)](https://crates.io/crates/sulid)
+[![Documentation](https://shields.io/docsrs/sulid)](https://docs.rs/sulid)
+[![License](https://img.shields.io/crates/l/sulid)](https://github.com/andeya/sulid?tab=MIT-1-ov-file)
+
+
 ## Features
 
 - **High Concurrency Support**: Efficiently generates unique IDs in high-concurrency environments.
