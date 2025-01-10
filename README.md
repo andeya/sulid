@@ -10,7 +10,7 @@ SULID is a unique ID generation algorithm that combines the benefits of ULID and
 ## Features
 
 - **High Concurrency Support**: Efficiently generates unique IDs in high-concurrency environments.
-- **Time Ordered**: Retains the time-ordered characteristic of ULID.
+- **Time Ordered**: It retains the time-ordered characteristic of ULID and supports both millisecond-level ordering and microsecond-level ordering.
 - **Distributed Uniqueness**: Ensures unique IDs across distributed environments by incorporating data center and machine IDs.
 - **Readability**: Produces shorter, human-readable identifiers.
 
@@ -22,27 +22,30 @@ SULID is based on the ULID (Universally Unique Lexicographically Sortable Identi
 
 SULIDs have a unique structure comprising the following parts, adding up to a 128-bit identifier:
 
-### Version1
-1. **Timestamp**: 48 bits, representing the epoch time in milliseconds.
-2. **Random Number**: 70 bits of randomness to ensure uniqueness within the same millisecond.
-3. **Data Center ID**: 5 bits, identifying the data center.
-4. **Machine ID**: 5 bits, identifying the machine within the data center.
-
-Here is a visual breakdown of the SULID format:
-
-```
-| 48-bit Timestamp | 70-bit Random Number | 5-bit Data Center ID | 5-bit Machine ID |
-```
-
-### Version2
-1. **Timestamp**: 48 bits, representing the epoch time in milliseconds.
-2. **Random Number**: 70 bits of randomness to ensure uniqueness within the same millisecond.
+### Millisecond-level Ordering
+1. **Timestamp**: 42 bits, representing the epoch time in milliseconds.
+2. **Random Number**: 76 bits of randomness to ensure uniqueness within the same millisecond.
 3. **Worker ID**: 10 bits, the combination of data_center_id and machine_id.
+   - **Data Center ID**: 5 bits, identifying the data center.
+   - **Machine ID**: 5 bits, identifying the machine within the data center.
 
 Here is a visual breakdown of the SULID format:
 
 ```
-| 48-bit Timestamp | 70-bit Random Number | 10-bit Worker ID |
+| 42-bit Timestamp | 76-bit Random Number | 10-bit Worker ID (5-bit Data Center ID | 5-bit Machine ID) |
+```
+
+### Microsecond-level Ordering
+1. **Timestamp**: 52 bits, representing the epoch time in milliseconds.
+2. **Random Number**: 66 bits of randomness to ensure uniqueness within the same millisecond.
+3. **Worker ID**: 10 bits, the combination of data_center_id and machine_id.
+   - **Data Center ID**: 5 bits, identifying the data center.
+   - **Machine ID**: 5 bits, identifying the machine within the data center.
+
+Here is a visual breakdown of the SULID format:
+
+```
+| 52-bit Timestamp | 66-bit Random Number | 10-bit Worker ID (5-bit Data Center ID | 5-bit Machine ID) |
 ```
 
 
@@ -52,7 +55,7 @@ To use SULID, add the following dependencies to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-sulid = "0.6"
+sulid = "0.7"
 ```
 
 ## Usage
@@ -60,21 +63,40 @@ sulid = "0.6"
 Here's how you can use the `SulidGenerator` in your project:
 
 ```rust
-use sulid::SulidGenerator;
+use sulid::{SulidGenerator, TimestampType};
 
 fn main() {
-    let generator = SulidGenerator::v1_new(1, 1);
+    #[cfg(feature = "std")]
+    {
+        let generator = SulidGenerator::new1(1, 1, TimestampType::MS);
 
-    for _ in 0..3 {
-        let id = generator.generate();
-        println!("SULID-V1: {}", id);
+        for _ in 0..3 {
+            let id = generator.generate();
+            println!("SULID-MS: {}", id);
+        }
+
+        let generator = SulidGenerator::new2(1, TimestampType::US);
+
+        for _ in 0..3 {
+            let id = generator.generate();
+            println!("SULID-US: {}", id);
+        }
     }
+    #[cfg(not(feature = "std"))]
+    {
+        let generator = SulidGenerator::new1(1, 1, TimestampType::MS);
 
-    let generator = SulidGenerator::v2_new(1);
+        for i in 0..3 {
+            let id = generator.generate(1736611200000, i);
+            println!("SULID-MS: {}", id);
+        }
 
-    for _ in 0..3 {
-        let id = generator.generate();
-        println!("SULID-V2: {}", id);
+        let generator = SulidGenerator::new2(1, TimestampType::US);
+
+        for i in 0..3 {
+            let id = generator.generate(1736611200000, i);
+            println!("SULID-US: {}", id);
+        }
     }
 }
 ```

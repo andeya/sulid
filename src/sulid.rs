@@ -7,25 +7,22 @@
 //! ## Quickstart
 //!
 //! ```rust
-//! # use sulid::Sulid;
+//! # use sulid::{Sulid, TimestampType};
 //! // Generate a sulid
-//! # let sulid = Sulid::default();
+//! # let sulid = Sulid::nil(TimestampType::MS);
 //!
 //! // Generate a string for a sulid
 //! let s = sulid.to_string();
 //!
 //! // Create from a String
-//! let res = Sulid::from_string(&s);
-//! assert_eq!(sulid, res.unwrap());
-//!
-//! // Or using FromStr
-//! let res = s.parse();
+//! let res = Sulid::from_string(&s, TimestampType::MS);
 //! assert_eq!(sulid, res.unwrap());
 //! ```
 
 use crate::{DecodeError, ULID_LEN};
 use core::convert::TryFrom;
 use core::fmt;
+use core::ops::Deref;
 use core::str::FromStr;
 use ulid::Ulid;
 
@@ -47,13 +44,24 @@ pub(crate) use bitmask;
 /// next 70 bits are random. The remaining 10 bits are divided into
 /// 5-bit data center ID and 5-bit machine ID.
 #[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Hash, Clone, Copy)]
-pub struct Sulid(Ulid);
+pub enum Sulid {
+    /// Millisecond-Sulid
+    MS(Ulid),
+    /// Microsecond-Sulid
+    US(Ulid),
+}
 
 impl Sulid {
-    /// The number of bits in a Sulid's time portion
-    pub const TIME_BITS: u8 = 48;
-    /// The number of bits in a Sulid's random portion
-    pub const RAND_BITS: u8 = 70;
+    /// The number of bits in a Sulid's time portion.
+    /// Millisecond timestamp, which can represent up to the year 2109 AD.
+    pub const TIME_BITS_MS: u8 = 42;
+    /// The number of bits in a Sulid's random portion is designed for the millisecond timestamp plan.
+    pub const RAND_BITS_MS: u8 = 76;
+    /// The number of bits in a Sulid's time portion.
+    /// Microsecond timestamp, which can represent up to the year 2112 AD.
+    pub const TIME_BITS_US: u8 = 52;
+    /// The number of bits in a Sulid's random portion is designed for the microsecond timestamp plan.
+    pub const RAND_BITS_US: u8 = 66;
     /// The number of bits for data center ID
     pub const DATA_CENTER_BITS: u8 = 5;
     /// The number of bits for machine ID
@@ -62,119 +70,97 @@ impl Sulid {
     pub const WORKER_BITS: u8 = 10;
 
     /// Create a Sulid from integer representation.
-    pub fn from_u128(u: u128) -> Self {
-        Self(Ulid(u))
+    #[inline]
+    pub const fn from_u128(u: u128, ts_type: TimestampType) -> Self {
+        match ts_type {
+            TimestampType::MS => Self::MS(Ulid(u)),
+            TimestampType::US => Self::US(Ulid(u)),
+        }
     }
 
     /// Gets the integer representation
-    pub fn u128(&self) -> u128 {
-        self.0 .0
-    }
-
-    /// Create a Sulid from separated parts.
-    ///
-    /// NOTE: Any overflow bits in the given args are discarded
-    ///
-    /// # Example
-    /// ```rust
-    /// use sulid::Sulid;
-    ///
-    /// let sulid = Sulid::from_string("01D39ZY06FGSCTVN4T2V9PKHFZ").unwrap();
-    ///
-    /// let sulid2 = Sulid::v1_from_parts(sulid.timestamp_ms(), sulid.random(), sulid.v1_data_center_id(), sulid.v1_machine_id());
-    ///
-    /// assert_eq!(sulid, sulid2);
-    /// ```
-    #[inline]
-    pub const fn v1_from_parts(
-        timestamp_ms: u64,
-        random: u128,
-        data_center_id: u8,
-        machine_id: u8,
-    ) -> Sulid {
-        let bitmask_timestamp_ms: u64 = bitmask!(Self::TIME_BITS => u64);
-        let bitmask_random: u128 = bitmask!(Self::RAND_BITS => u128);
-        let bitmask_data_center_id: u8 = bitmask!(Self::DATA_CENTER_BITS => u8);
-        let bitmask_machine_id: u8 = bitmask!(Self::MACHINE_BITS => u8);
-
-        #[cfg(feature = "assert")]
-        {
-            assert!(
-                timestamp_ms <= bitmask_timestamp_ms,
-                "timestamp_ms must be in the range 0-281474976710655"
-            );
-            assert!(
-                random <= bitmask_random,
-                "random must be in the range 0-1180591620717411303423"
-            );
-            assert!(
-                data_center_id <= bitmask_data_center_id,
-                "data_center_id must be in the range 0-31"
-            );
-            assert!(
-                machine_id <= bitmask_machine_id,
-                "machine_id must be in the range 0-31"
-            );
+    pub const fn as_u128(&self) -> u128 {
+        match self {
+            Sulid::MS(ulid) => ulid.0,
+            Sulid::US(ulid) => ulid.0,
         }
-
-        let time_part = (timestamp_ms & bitmask_timestamp_ms) as u128;
-        let rand_part = random & bitmask_random;
-        let data_center_part = (data_center_id & bitmask_data_center_id) as u128;
-        let machine_part = (machine_id & bitmask_machine_id) as u128;
-
-        Sulid(Ulid(
-            (time_part << (Self::RAND_BITS + Self::DATA_CENTER_BITS + Self::MACHINE_BITS))
-                | (rand_part << (Self::DATA_CENTER_BITS + Self::MACHINE_BITS))
-                | (data_center_part << Self::MACHINE_BITS)
-                | machine_part,
-        ))
     }
 
-    /// Create a Sulid from separated parts.
+    /// Create a Sulid from separated parts (using millisecond).
     ///
     /// NOTE: Any overflow bits in the given args are discarded
     ///
     /// # Example
     /// ```rust
-    /// use sulid::Sulid;
+    /// use sulid::{Sulid, WorkerId, TimestampType};
     ///
-    /// let sulid = Sulid::from_string("01D39ZY06FGSCTVN4T2V9PKHFZ").unwrap();
+    /// let sulid = Sulid::from_string("01D39ZY06FGSCTVN4T2V9PKHFZ", TimestampType::MS).unwrap();
     ///
-    /// let sulid2 = Sulid::v2_from_parts(sulid.timestamp_ms(), sulid.random(), sulid.v2_worker_id());
+    /// let sulid2 = Sulid::from_parts(sulid.timestamp(), sulid.random(), sulid.worker_id().into());
     ///
     /// assert_eq!(sulid, sulid2);
     /// ```
     #[inline]
-    pub fn v2_from_parts(timestamp_ms: u64, random: u128, worker_id: u16) -> Sulid {
-        let bitmask_timestamp_ms: u64 = bitmask!(Self::TIME_BITS => u64);
-        let bitmask_random: u128 = bitmask!(Self::RAND_BITS => u128);
+    pub fn from_parts(timestamp: Timestamp, random: u128, worker_id: WorkerId) -> Sulid {
+        let worker_id = match worker_id {
+            WorkerId::One(id) => id,
+            WorkerId::Two {
+                data_center_id,
+                machine_id,
+            } => {
+                #[cfg(feature = "assert")]
+                {
+                    let bitmask_data_center_id: u8 = bitmask!(Self::DATA_CENTER_BITS => u8);
+                    let bitmask_machine_id: u8 = bitmask!(Self::MACHINE_BITS => u8);
+                    assert!(
+                        data_center_id <= bitmask_data_center_id,
+                        "data_center_id must be in the range 0-{bitmask_data_center_id}"
+                    );
+                    assert!(
+                        machine_id <= bitmask_machine_id,
+                        "machine_id must be in the range 0-{bitmask_machine_id}"
+                    );
+                }
+                ((data_center_id as u16) << Self::MACHINE_BITS) | (machine_id as u16)
+            }
+        };
+        let (ts, time_bits, rand_bit) = match timestamp {
+            Timestamp::MS(ts) => (ts, Self::TIME_BITS_MS, Self::RAND_BITS_MS),
+            Timestamp::US(ts) => (ts, Self::TIME_BITS_US, Self::RAND_BITS_US),
+        };
+        let bitmask_timestamp: u64 = bitmask!(time_bits => u64);
+        let bitmask_random: u128 = bitmask!(rand_bit => u128);
         let bitmask_worker_id: u16 = bitmask!(Self::WORKER_BITS => u16);
-
         #[cfg(feature = "assert")]
         {
             assert!(
-                timestamp_ms <= bitmask_timestamp_ms,
-                "timestamp_ms must be in the range 0-281474976710655"
+                ts <= bitmask_timestamp,
+                "timestamp must be in the range 0-{bitmask_timestamp}, but get {ts}"
             );
             assert!(
                 random <= bitmask_random,
-                "random must be in the range 0-1180591620717411303423"
+                "random must be in the range 0-{bitmask_random}, but get {random}"
             );
             assert!(
                 worker_id <= bitmask_worker_id,
-                "worker_id must be in the range 0-1023"
+                "worker_id must be in the range 0-{bitmask_worker_id}, but get {worker_id}"
             );
         }
 
-        let time_part = (timestamp_ms & bitmask_timestamp_ms) as u128;
+        let time_part = (ts & bitmask_timestamp) as u128;
         let rand_part = random & bitmask_random;
         let worker_part = (worker_id & bitmask_worker_id) as u128;
 
-        Sulid(Ulid(
-            (time_part << (Self::RAND_BITS + Self::DATA_CENTER_BITS + Self::MACHINE_BITS))
+        let id = Ulid(
+            (time_part << (Self::RAND_BITS_MS + Self::DATA_CENTER_BITS + Self::MACHINE_BITS))
                 | (rand_part << (Self::DATA_CENTER_BITS + Self::MACHINE_BITS))
                 | worker_part,
-        ))
+        );
+
+        match timestamp {
+            Timestamp::MS(_) => Sulid::MS(id),
+            Timestamp::US(_) => Sulid::US(id),
+        }
     }
 
     /// Creates a Sulid from a Crockford Base32 encoded string
@@ -184,18 +170,21 @@ impl Sulid {
     ///
     /// # Example
     /// ```rust
-    /// use sulid::Sulid;
+    /// use sulid::{Sulid,TimestampType};
     ///
     /// let text = "01D39ZY06FGSCTVN4T2V9PKHFZ";
-    /// let result = Sulid::from_string(text);
+    /// let result = Sulid::from_string(text, TimestampType::MS);
     ///
     /// assert!(result.is_ok());
     /// assert_eq!(&result.unwrap().to_string(), text);
     /// ```
     #[inline]
-    pub const fn from_string(encoded: &str) -> Result<Sulid, DecodeError> {
+    pub const fn from_string(encoded: &str, ts_type: TimestampType) -> Result<Sulid, DecodeError> {
         match Ulid::from_string(encoded) {
-            Ok(int_val) => Ok(Sulid(int_val)),
+            Ok(int_val) => Ok(match ts_type {
+                TimestampType::MS => Sulid::MS(int_val),
+                TimestampType::US => Sulid::US(int_val),
+            }),
             Err(err) => Err(err),
         }
     }
@@ -207,9 +196,9 @@ impl Sulid {
     ///
     /// # Example
     /// ```rust
-    /// use sulid::Sulid;
+    /// use sulid::{Sulid, TimestampType};
     ///
-    /// let sulid = Sulid::nil();
+    /// let sulid = Sulid::nil(TimestampType::MS);
     ///
     /// assert_eq!(
     ///     sulid.to_string(),
@@ -217,73 +206,84 @@ impl Sulid {
     /// );
     /// ```
     #[inline]
-    pub const fn nil() -> Sulid {
-        Sulid(Ulid::nil())
+    pub const fn nil(ts_type: TimestampType) -> Sulid {
+        match ts_type {
+            TimestampType::MS => Sulid::MS(Ulid::nil()),
+            TimestampType::US => Sulid::US(Ulid::nil()),
+        }
     }
 
-    /// Gets the timestamp section of this sulid
+    const fn inner(&self) -> &Ulid {
+        match self {
+            Sulid::MS(ulid) => ulid,
+            Sulid::US(ulid) => ulid,
+        }
+    }
+
+    /// Gets the microsecond timestamp section of this sulid.
     ///
     /// # Example
     /// ```rust
     /// # #[cfg(feature = "std")] {
     /// use std::time::{SystemTime, Duration};
-    /// use sulid::Sulid;
+    /// use sulid::{Sulid, Timestamp, TimestampType, WorkerId};
     ///
     /// let dt = SystemTime::now();
-    /// let sulid = Sulid::v1_from_parts(dt.duration_since(SystemTime::UNIX_EPOCH).unwrap_or(Duration::ZERO).as_millis() as u64, 1, 1, 1);
-    /// assert_eq!(u128::from(sulid.timestamp_ms()), dt.duration_since(SystemTime::UNIX_EPOCH).unwrap_or(Duration::ZERO).as_millis());
-    ///
-    /// let sulid = Sulid::v2_from_parts(dt.duration_since(SystemTime::UNIX_EPOCH).unwrap_or(Duration::ZERO).as_millis() as u64, 1, 1);
-    /// assert_eq!(u128::from(sulid.timestamp_ms()), dt.duration_since(SystemTime::UNIX_EPOCH).unwrap_or(Duration::ZERO).as_millis());
+    /// let ts = Timestamp::from_u128(dt.duration_since(SystemTime::UNIX_EPOCH).unwrap_or(Duration::ZERO).as_millis(), TimestampType::MS);
+    /// let sulid = Sulid::from_parts(ts, 1, WorkerId::One(11));
+    /// assert_eq!(sulid.timestamp().as_u128(), dt.duration_since(SystemTime::UNIX_EPOCH).unwrap_or(Duration::ZERO).as_millis());
     /// # }
     /// ```
-    pub const fn timestamp_ms(&self) -> u64 {
-        (self.0 .0 >> (Self::RAND_BITS + Self::DATA_CENTER_BITS + Self::MACHINE_BITS)) as u64
+    pub const fn timestamp(&self) -> Timestamp {
+        match self {
+            Sulid::MS(ulid) => {
+                Timestamp::MS((ulid.0 >> (Self::RAND_BITS_MS + Self::WORKER_BITS)) as u64)
+            }
+            Sulid::US(ulid) => {
+                Timestamp::US((ulid.0 >> (Self::RAND_BITS_US + Self::WORKER_BITS)) as u64)
+            }
+        }
     }
 
     /// Gets the random section of this sulid
     ///
     /// # Example
     /// ```rust
-    /// use sulid::Sulid;
+    /// use sulid::{Sulid, TimestampType};
     ///
     /// let text = "01D39ZY06FGSCTVN4T2V9PKHFZ";
-    /// let sulid = Sulid::from_string(text).unwrap();
+    /// let sulid = Sulid::from_string(text, TimestampType::MS).unwrap();
     /// let sulid_next = sulid.increment().unwrap();
     ///
     /// assert_eq!(sulid.random() + 1, sulid_next.random());
     /// ```
     pub const fn random(&self) -> u128 {
-        (self.0 .0 >> (Self::DATA_CENTER_BITS + Self::MACHINE_BITS))
-            & bitmask!(Self::RAND_BITS => u128)
+        (self.inner().0 >> (Self::WORKER_BITS)) & bitmask!(Self::RAND_BITS_MS => u128)
     }
 
     /// Gets the data center ID portion of this sulid
-    /// NOTE: It is only meaningful for v1.
-    pub const fn v1_data_center_id(&self) -> u8 {
-        ((self.0 .0 >> Self::MACHINE_BITS) & bitmask!(Self::DATA_CENTER_BITS => u128)) as u8
+    pub const fn data_center_id(&self) -> u8 {
+        ((self.inner().0 >> Self::MACHINE_BITS) & bitmask!(Self::DATA_CENTER_BITS => u128)) as u8
     }
 
     /// Gets the machine ID portion of this sulid
-    /// NOTE: It is only meaningful for v1.
-    pub const fn v1_machine_id(&self) -> u8 {
-        (self.0 .0 & bitmask!(Self::MACHINE_BITS => u128)) as u8
+    pub const fn machine_id(&self) -> u8 {
+        (self.inner().0 & bitmask!(Self::MACHINE_BITS => u128)) as u8
     }
 
     /// Gets the worker ID portion of this sulid
-    /// NOTE: It is only meaningful for v2.
-    pub const fn v2_worker_id(&self) -> u16 {
-        (self.0 .0 & bitmask!(Self::WORKER_BITS => u128)) as u16
+    pub const fn worker_id(&self) -> u16 {
+        (self.inner().0 & bitmask!(Self::WORKER_BITS => u128)) as u16
     }
 
-    /// Creates a Crockford Base32 encoded string that represents this Sulid
+    /// Creates a Crockford Base32 encoded string that represents this Sulid.
     ///
     /// # Example
     /// ```rust
-    /// use sulid::Sulid;
+    /// use sulid::{Sulid, TimestampType};
     ///
     /// let text = "01D39ZY06FGSCTVN4T2V9PKHFZ";
-    /// let sulid = Sulid::from_string(text).unwrap();
+    /// let sulid = Sulid::from_string(text, TimestampType::MS).unwrap();
     ///
     /// let mut buf = [0; sulid::ULID_LEN];
     /// let new_text = sulid.array_to_str(&mut buf);
@@ -291,49 +291,75 @@ impl Sulid {
     /// assert_eq!(new_text, text);
     /// ```
     pub fn array_to_str<'buf>(&self, buf: &'buf mut [u8; ULID_LEN]) -> &'buf mut str {
-        self.0.array_to_str(buf)
+        self.inner().array_to_str(buf)
     }
 
-    /// Test if the Sulid is nil
+    /// Creates a Crockford Base32 encoded string that represents this Sulid.
     ///
     /// # Example
     /// ```rust
-    /// use sulid::Sulid;
+    /// use sulid::{Sulid, TimestampType};
     ///
-    /// let sulid = Sulid::from_u128(1);
+    /// let text = "01D39ZY06FGSCTVN4T2V9PKHFZ";
+    /// let sulid = Sulid::from_string(text, TimestampType::MS).unwrap();
+    ///
+    /// let new_text = sulid.to_str();
+    ///
+    /// assert_eq!(&*new_text, text);
+    /// ```
+    pub fn to_str(&self) -> ArrayStr {
+        let mut buf = [0; ulid::ULID_LEN];
+        let _ = self.array_to_str(&mut buf);
+        ArrayStr(buf)
+    }
+
+    /// Test if the Sulid is nil.
+    ///
+    /// # Example
+    /// ```rust
+    /// use sulid::{Sulid, TimestampType};
+    ///
+    /// let sulid = Sulid::from_u128(1, TimestampType::MS);
     /// assert!(!sulid.is_nil());
     ///
-    /// let nil = Sulid::nil();
+    /// let nil = Sulid::nil(TimestampType::MS);
     /// assert!(nil.is_nil());
     /// ```
     #[inline]
     pub const fn is_nil(&self) -> bool {
-        self.0.is_nil()
+        self.inner().is_nil()
     }
 
-    /// Increment the random number, make sure that the ts millis stays the same
+    /// Increment the random number, make sure that the ts stays the same.
     pub const fn increment(&self) -> Option<Sulid> {
-        const MAX_RANDOM: u128 = bitmask!(Sulid::RAND_BITS => u128);
-
-        if ((self.0 .0 >> (Sulid::DATA_CENTER_BITS + Sulid::MACHINE_BITS)) & MAX_RANDOM)
-            == MAX_RANDOM
-        {
-            None
-        } else {
-            Some(Sulid(Ulid(
-                self.0 .0 + (1 << (Sulid::DATA_CENTER_BITS + Sulid::MACHINE_BITS)),
-            )))
+        match self {
+            Sulid::MS(ulid) => {
+                const MAX_RANDOM: u128 = bitmask!(Sulid::RAND_BITS_MS => u128);
+                if ((ulid.0 >> Sulid::WORKER_BITS) & MAX_RANDOM) == MAX_RANDOM {
+                    None
+                } else {
+                    Some(Sulid::MS(Ulid(ulid.0 + (1 << Sulid::WORKER_BITS))))
+                }
+            }
+            Sulid::US(ulid) => {
+                const MAX_RANDOM: u128 = bitmask!(Sulid::RAND_BITS_US => u128);
+                if ((ulid.0 >> Sulid::WORKER_BITS) & MAX_RANDOM) == MAX_RANDOM {
+                    None
+                } else {
+                    Some(Sulid::US(Ulid(ulid.0 + (1 << Sulid::WORKER_BITS))))
+                }
+            }
         }
     }
 
     /// Creates a Sulid using the provided bytes array.
     ///
     /// # Example
-    /// ```
-    /// use sulid::Sulid;
+    /// ```rust
+    /// use sulid::{Sulid, TimestampType};
     /// let bytes = [0xFF; 16];
     ///
-    /// let sulid = Sulid::from_bytes(bytes);
+    /// let sulid = Sulid::from_bytes(bytes, TimestampType::MS);
     ///
     /// assert_eq!(
     ///     sulid.to_string(),
@@ -341,103 +367,185 @@ impl Sulid {
     /// );
     /// ```
     #[inline]
-    pub const fn from_bytes(bytes: [u8; 16]) -> Sulid {
-        Self(Ulid::from_bytes(bytes))
+    pub const fn from_bytes(bytes: [u8; 16], ts_type: TimestampType) -> Sulid {
+        match ts_type {
+            TimestampType::MS => Self::MS(Ulid::from_bytes(bytes)),
+            TimestampType::US => Self::US(Ulid::from_bytes(bytes)),
+        }
     }
 
     /// Returns the bytes of the Sulid in big-endian order.
     ///
     /// # Example
     /// ```
-    /// use sulid::Sulid;
+    /// use sulid::{Sulid, TimestampType};
     ///
     /// let text = "7ZZZZZZZZZZZZZZZZZZZZZZZZZ";
-    /// let sulid = Sulid::from_string(text).unwrap();
+    /// let sulid = Sulid::from_string(text, TimestampType::MS).unwrap();
     ///
     /// assert_eq!(sulid.to_bytes(), [0xFF; 16]);
     /// ```
     #[inline]
     pub const fn to_bytes(&self) -> [u8; 16] {
-        self.0.to_bytes()
+        self.inner().to_bytes()
     }
 }
 
-impl Default for Sulid {
-    fn default() -> Self {
-        Sulid::nil()
+pub struct ArrayStr([u8; ulid::ULID_LEN]);
+impl Deref for ArrayStr {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::str::from_utf8_unchecked(&self.0) }
     }
 }
 
-impl From<(u64, u128, u8, u8)> for Sulid {
+/// Timestamp type, millisecond or microsecond.
+#[derive(Debug, Clone, Copy)]
+pub enum TimestampType {
+    /// Millisecond timestamp
+    MS,
+    /// Microsecond timestamp
+    US,
+}
+impl TimestampType {
+    /// New Timestamp from u64 type.
+    pub const fn new_ts_u64(self, ts: u64) -> Timestamp {
+        Timestamp::from_u64(ts, self)
+    }
+    /// New Timestamp from u128 type.
+    pub const fn new_ts_u128(self, ts: u128) -> Timestamp {
+        Timestamp::from_u128(ts, self)
+    }
+}
+
+/// Timestamp, whose type may be millisecond or microsecond.
+#[derive(Debug, Clone, Copy)]
+pub enum Timestamp {
+    /// Millisecond timestamp
+    MS(u64),
+    /// Microsecond timestamp
+    US(u64),
+}
+
+impl Timestamp {
+    /// New Timestamp from u64 type.
+    #[inline]
+    pub const fn from_u64(ts: u64, ts_type: TimestampType) -> Self {
+        match ts_type {
+            TimestampType::MS => Self::MS(ts),
+            TimestampType::US => Self::US(ts),
+        }
+    }
+    /// New Timestamp from u128 type.
+    #[inline]
+    pub const fn from_u128(ts: u128, ts_type: TimestampType) -> Self {
+        Self::from_u64(ts as u64, ts_type)
+    }
+    /// Convert to u64.
+    #[inline]
+    pub const fn as_u64(self) -> u64 {
+        match self {
+            Timestamp::MS(v) => v,
+            Timestamp::US(v) => v,
+        }
+    }
+    /// Convert to u128.
+    #[inline]
+    pub const fn as_u128(self) -> u128 {
+        self.as_u64() as u128
+    }
+}
+
+/// A 10-bit work ID, which can be composed of a 5-bit data center ID and a 5-bit machine ID.
+#[derive(Debug, Clone, Copy)]
+pub enum WorkerId {
+    /// 10 bits, the combination of data_center_id and machine_id.
+    One(u16),
+    /// The work ID composed of the data center ID and the machine ID.
+    Two {
+        /// 5 bits, identifying the data center.
+        data_center_id: u8,
+        /// 5 bits, identifying the machine within the data center.
+        machine_id: u8,
+    },
+}
+impl WorkerId {
+    /// New WorkerId from worker_id.
+    pub const fn new_one(worker_id: u16) -> Self {
+        Self::One(worker_id)
+    }
+    /// New WorkerId from data_center_id and machine_id.
+    pub const fn new_two(data_center_id: u8, machine_id: u8) -> Self {
+        Self::Two {
+            data_center_id,
+            machine_id,
+        }
+    }
+}
+impl From<u16> for WorkerId {
+    fn from(value: u16) -> Self {
+        Self::One(value)
+    }
+}
+
+impl From<(u8, u8)> for WorkerId {
+    fn from((data_center_id, machine_id): (u8, u8)) -> Self {
+        Self::Two {
+            data_center_id,
+            machine_id,
+        }
+    }
+}
+
+impl From<(Timestamp, u128, u8, u8)> for Sulid {
     /// NOTE: It is only meaningful for v1.
-    fn from((timestamp_ms, random, data_center_id, machine_id): (u64, u128, u8, u8)) -> Self {
-        Sulid::v1_from_parts(timestamp_ms, random, data_center_id, machine_id)
-    }
-}
-
-impl From<Sulid> for (u64, u128, u8, u8) {
-    /// NOTE: It is only meaningful for v1.
-    fn from(sulid: Sulid) -> (u64, u128, u8, u8) {
-        (
-            sulid.timestamp_ms(),
-            sulid.random(),
-            sulid.v1_data_center_id(),
-            sulid.v1_machine_id(),
+    fn from((timestamp, random, data_center_id, machine_id): (Timestamp, u128, u8, u8)) -> Self {
+        Sulid::from_parts(
+            timestamp,
+            random,
+            WorkerId::Two {
+                data_center_id,
+                machine_id,
+            },
         )
     }
 }
 
-impl From<(u64, u128, u16)> for Sulid {
-    /// NOTE: It is only meaningful for v2.
-    fn from((timestamp_ms, random, worker_id): (u64, u128, u16)) -> Self {
-        Sulid::v2_from_parts(timestamp_ms, random, worker_id)
+impl From<Sulid> for (Timestamp, u128, u8, u8) {
+    /// NOTE: It is only meaningful for v1.
+    fn from(sulid: Sulid) -> (Timestamp, u128, u8, u8) {
+        (
+            sulid.timestamp(),
+            sulid.random(),
+            sulid.data_center_id(),
+            sulid.machine_id(),
+        )
     }
 }
 
-impl From<Sulid> for (u64, u128, u16) {
+impl From<(Timestamp, u128, u16)> for Sulid {
     /// NOTE: It is only meaningful for v2.
-    fn from(sulid: Sulid) -> (u64, u128, u16) {
-        (sulid.timestamp_ms(), sulid.random(), sulid.v2_worker_id())
+    fn from((timestamp, random, worker_id): (Timestamp, u128, u16)) -> Self {
+        Sulid::from_parts(timestamp, random, WorkerId::One(worker_id))
     }
 }
 
-impl From<u128> for Sulid {
-    fn from(value: u128) -> Sulid {
-        Sulid(Ulid(value))
+impl From<Sulid> for (Timestamp, u128, u16) {
+    /// NOTE: It is only meaningful for v2.
+    fn from(sulid: Sulid) -> (Timestamp, u128, u16) {
+        (sulid.timestamp(), sulid.random(), sulid.worker_id())
     }
 }
 
 impl From<Sulid> for u128 {
     fn from(sulid: Sulid) -> u128 {
-        sulid.0 .0
-    }
-}
-
-impl From<[u8; 16]> for Sulid {
-    fn from(bytes: [u8; 16]) -> Self {
-        Self(Ulid::from_bytes(bytes))
+        sulid.inner().0
     }
 }
 
 impl From<Sulid> for [u8; 16] {
     fn from(sulid: Sulid) -> Self {
-        sulid.0.to_bytes()
-    }
-}
-
-impl FromStr for Sulid {
-    type Err = DecodeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Sulid::from_string(s)
-    }
-}
-
-impl TryFrom<&'_ str> for Sulid {
-    type Error = DecodeError;
-
-    fn try_from(value: &'_ str) -> Result<Self, Self::Error> {
-        Sulid::from_string(value)
+        sulid.inner().to_bytes()
     }
 }
 
@@ -454,21 +562,22 @@ mod tests {
     #[test]
     fn test_static() {
         let mut s = [0u8; ULID_LEN];
-        let s = Sulid::from_u128(0x41414141414141414141414141414141).array_to_str(&mut s);
-        let u = Sulid::from_string(&s).unwrap();
+        let s = Sulid::from_u128(0x41414141414141414141414141414141, TimestampType::MS)
+            .array_to_str(&mut s);
+        let u = Sulid::from_string(&s, TimestampType::MS).unwrap();
         assert_eq!(s, "21850M2GA1850M2GA1850M2GA1");
-        assert_eq!(u.u128(), 0x41414141414141414141414141414141);
+        assert_eq!(u.as_u128(), 0x41414141414141414141414141414141);
     }
 
     #[test]
     fn test_increment() {
         let mut s = [0u8; ULID_LEN];
 
-        let sulid = Sulid::from_string("01BX5ZZKBKAZZZZZZZZZZZZZZZ").unwrap();
+        let sulid = Sulid::from_string("01BX5ZZKBKAZZZZZZZZZZZZZZZ", TimestampType::MS).unwrap();
         let sulid = sulid.increment().unwrap();
         assert_eq!("01BX5ZZKBKB0000000000000ZZ", sulid.array_to_str(&mut s));
 
-        let sulid = Sulid::from_string("01BX5ZZKBKZZZZZZZZZZZZZXZX").unwrap();
+        let sulid = Sulid::from_string("01BX5ZZKBKZZZZZZZZZZZZZXZX", TimestampType::MS).unwrap();
         let sulid = sulid.increment().unwrap();
         s.fill(0);
         assert_eq!("01BX5ZZKBKZZZZZZZZZZZZZYZX", sulid.array_to_str(&mut s));
@@ -476,44 +585,50 @@ mod tests {
         let sulid = sulid.increment().unwrap();
         s.fill(0);
         assert_eq!("01BX5ZZKBKZZZZZZZZZZZZZZZX", sulid.array_to_str(&mut s));
-        assert!(sulid.increment().is_none());
     }
 
     #[test]
     fn test_increment_overflow() {
-        let sulid = Sulid::from_u128(u128::max_value());
+        let sulid = Sulid::from_u128(u128::max_value(), TimestampType::MS);
+        assert_eq!("7ZZZZZZZZZZZZZZZZZZZZZZZZZ", &*sulid.to_str());
         assert!(sulid.increment().is_none());
     }
 
     #[test]
     fn can_into_thing() {
-        let sulid = Sulid::from_str("01FKMG6GAG0PJANMWFN84TNXCD").unwrap();
+        let sulid = Sulid::from_string("01FKMG6GAG0PJANMWFN84TNXCD", TimestampType::MS).unwrap();
         let u: u128 = sulid.into();
-        let uu: (u64, u128, u8, u8) = sulid.into();
-        let uu2: (u64, u128, u16) = sulid.into();
+        let uu: (Timestamp, u128, u8, u8) = sulid.into();
+        let uu2: (Timestamp, u128, u16) = sulid.into();
         let bytes: [u8; 16] = sulid.into();
-        assert_eq!(Sulid::from(u), sulid);
+        assert_eq!(Sulid::from_u128(u, TimestampType::MS), sulid);
         assert_eq!(Sulid::from(uu), sulid);
         assert_eq!(Sulid::from(uu2), sulid);
-        assert_eq!(Sulid::from(bytes), sulid);
+        assert_eq!(Sulid::from_bytes(bytes, TimestampType::MS), sulid);
 
         #[cfg(feature = "std")]
         {
             let s: String = sulid.into();
-            assert_eq!(Sulid::from_str(&s).unwrap(), sulid);
+            assert_eq!(Sulid::from_string(&s, TimestampType::MS).unwrap(), sulid);
         }
-    }
-
-    #[test]
-    fn default_is_nil() {
-        assert_eq!(Sulid::default(), Sulid::nil());
     }
 }
 
 #[cfg(feature = "std")]
 pub(crate) mod std_feature {
-    use crate::{sulid::bitmask, Sulid};
+    use crate::{sulid::bitmask, Sulid, Timestamp, TimestampType, WorkerId};
     use std::time::{Duration, SystemTime};
+
+    impl Timestamp {
+        /// Return the system time.
+        pub fn system_time(self) -> SystemTime {
+            SystemTime::UNIX_EPOCH
+                + match self {
+                    Timestamp::MS(ts) => Duration::from_millis(ts),
+                    Timestamp::US(ts) => Duration::from_micros(ts),
+                }
+        }
+    }
 
     impl From<Sulid> for String {
         fn from(sulid: Sulid) -> String {
@@ -528,26 +643,12 @@ pub(crate) mod std_feature {
         /// See [sulid::SulidGenerator] for a monotonic sort order.
         /// # Example
         /// ```rust
-        /// use sulid::Sulid;
+        /// use sulid::{Sulid, TimestampType};
         ///
-        /// let my_sulid = Sulid::v1_new(0, 0);
+        /// let my_sulid = Sulid::new(0.into(), TimestampType::MS);
         /// ```
-        pub fn v1_new(data_center_id: u8, machine_id: u8) -> Sulid {
-            Sulid::v1_from_datetime(now(), data_center_id, machine_id)
-        }
-
-        /// Creates a new Sulid with the current time (UTC)
-        ///
-        /// Using this function to generate Sulids will not guarantee monotonic sort order.
-        /// See [sulid::SulidGenerator] for a monotonic sort order.
-        /// # Example
-        /// ```rust
-        /// use sulid::Sulid;
-        ///
-        /// let my_sulid = Sulid::v2_new(0);
-        /// ```
-        pub fn v2_new(worker_id: u16) -> Sulid {
-            Sulid::v2_from_datetime(now(), worker_id)
+        pub fn new(worker_id: WorkerId, ts_type: TimestampType) -> Sulid {
+            Sulid::from_datetime(now(), worker_id, ts_type)
         }
 
         /// Creates a new Sulid using data from the given random number generator
@@ -555,17 +656,17 @@ pub(crate) mod std_feature {
         /// # Example
         /// ```rust
         /// use rand::prelude::*;
-        /// use sulid::Sulid;
+        /// use sulid::{Sulid, WorkerId, TimestampType};
         ///
         /// let mut rng = StdRng::from_entropy();
-        /// let sulid = Sulid::with_source(&mut rng, 0, 0);
+        /// let sulid = Sulid::with_source(&mut rng, 0.into(), TimestampType::MS);
         /// ```
         pub fn with_source<R: rand::Rng>(
             source: &mut R,
-            data_center_id: u8,
-            machine_id: u8,
+            worker_id: WorkerId,
+            ts_type: TimestampType,
         ) -> Sulid {
-            Sulid::v1_from_datetime_with_source(now(), source, data_center_id, machine_id)
+            Sulid::from_datetime_source(now(), source, worker_id, ts_type)
         }
 
         /// Creates a new Sulid with the given datetime
@@ -578,35 +679,16 @@ pub(crate) mod std_feature {
         /// # Example
         /// ```rust
         /// use std::time::{SystemTime, Duration};
-        /// use sulid::Sulid;
+        /// use sulid::{Sulid, TimestampType};
         ///
-        /// let sulid = Sulid::v1_from_datetime(SystemTime::now(), 0, 0);
+        /// let sulid = Sulid::from_datetime(SystemTime::now(), 0.into(), TimestampType::MS);
         /// ```
-        pub fn v1_from_datetime(datetime: SystemTime, data_center_id: u8, machine_id: u8) -> Sulid {
-            Sulid::v1_from_datetime_with_source(
-                datetime,
-                &mut rand::thread_rng(),
-                data_center_id,
-                machine_id,
-            )
-        }
-
-        /// Creates a new Sulid with the given datetime
-        ///
-        /// This can be useful when migrating data to use Sulid identifiers.
-        ///
-        /// This will take the maximum of the `[SystemTime]` argument and `[SystemTime::UNIX_EPOCH]`
-        /// as earlier times are not valid for a Sulid timestamp
-        ///
-        /// # Example
-        /// ```rust
-        /// use std::time::{SystemTime, Duration};
-        /// use sulid::Sulid;
-        ///
-        /// let sulid = Sulid::v2_from_datetime(SystemTime::now(), 0);
-        /// ```
-        pub fn v2_from_datetime(datetime: SystemTime, worker_id: u16) -> Sulid {
-            Sulid::v2_from_datetime_with_source(datetime, &mut rand::thread_rng(), worker_id)
+        pub fn from_datetime(
+            datetime: SystemTime,
+            worker_id: WorkerId,
+            ts_type: TimestampType,
+        ) -> Sulid {
+            Sulid::from_datetime_source(datetime, &mut rand::thread_rng(), worker_id, ts_type)
         }
 
         /// Creates a new Sulid with the given datetime and random number generator
@@ -618,16 +700,16 @@ pub(crate) mod std_feature {
         /// ```rust
         /// use std::time::{SystemTime, Duration};
         /// use rand::prelude::*;
-        /// use sulid::Sulid;
+        /// use sulid::{Sulid, TimestampType, WorkerId};
         ///
         /// let mut rng = StdRng::from_entropy();
-        /// let sulid = Sulid::v1_from_datetime_with_source(SystemTime::now(), &mut rng, 0, 0);
+        /// let sulid = Sulid::from_datetime_source(SystemTime::now(), &mut rng, WorkerId::One(0), TimestampType::MS);
         /// ```
-        pub fn v1_from_datetime_with_source<R>(
+        pub fn from_datetime_source<R>(
             datetime: SystemTime,
             source: &mut R,
-            data_center_id: u8,
-            machine_id: u8,
+            worker_id: WorkerId,
+            ts_type: TimestampType,
         ) -> Sulid
         where
             R: rand::Rng + ?Sized,
@@ -636,40 +718,13 @@ pub(crate) mod std_feature {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or(Duration::ZERO)
                 .as_millis();
-            let timebits = (timestamp & bitmask!(Self::TIME_BITS => u128)) as u64;
-            let randbits = (source.gen::<u128>() & bitmask!(Self::RAND_BITS => u128)) as u128;
-            Sulid::v1_from_parts(timebits, randbits, data_center_id, machine_id)
-        }
-
-        /// Creates a new Sulid with the given datetime and random number generator
-        ///
-        /// This will take the maximum of the `[SystemTime]` argument and `[SystemTime::UNIX_EPOCH]`
-        /// as earlier times are not valid for a Sulid timestamp
-        ///
-        /// # Example
-        /// ```rust
-        /// use std::time::{SystemTime, Duration};
-        /// use rand::prelude::*;
-        /// use sulid::Sulid;
-        ///
-        /// let mut rng = StdRng::from_entropy();
-        /// let sulid = Sulid::v2_from_datetime_with_source(SystemTime::now(), &mut rng, 0);
-        /// ```
-        pub fn v2_from_datetime_with_source<R>(
-            datetime: SystemTime,
-            source: &mut R,
-            worker_id: u16,
-        ) -> Sulid
-        where
-            R: rand::Rng + ?Sized,
-        {
-            let timestamp = datetime
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or(Duration::ZERO)
-                .as_millis();
-            let timebits = (timestamp & bitmask!(Self::TIME_BITS => u128)) as u64;
-            let randbits = (source.gen::<u128>() & bitmask!(Self::RAND_BITS => u128)) as u128;
-            Sulid::v2_from_parts(timebits, randbits, worker_id)
+            let (time_bits, rand_bits) = match ts_type {
+                TimestampType::MS => (Self::TIME_BITS_MS, Self::RAND_BITS_MS),
+                TimestampType::US => (Self::TIME_BITS_US, Self::RAND_BITS_US),
+            };
+            let timebits = (timestamp & bitmask!(time_bits => u128)) as u64;
+            let randbits = (source.gen::<u128>() & bitmask!(rand_bits => u128)) as u128;
+            Sulid::from_parts(ts_type.new_ts_u64(timebits), randbits, worker_id)
         }
 
         /// Gets the datetime of when this Sulid was created accurate to 1ms
@@ -677,10 +732,10 @@ pub(crate) mod std_feature {
         /// # Example
         /// ```rust
         /// use std::time::{SystemTime, Duration};
-        /// use sulid::Sulid;
+        /// use sulid::{Sulid, TimestampType};
         ///
         /// let dt = SystemTime::now();
-        /// let sulid = Sulid::v1_from_datetime(dt, 0, 0);
+        /// let sulid = Sulid::from_datetime(dt, 0.into(), TimestampType::MS);
         ///
         /// assert!(
         ///     dt + Duration::from_millis(1) >= sulid.datetime()
@@ -688,23 +743,22 @@ pub(crate) mod std_feature {
         /// );
         /// ```
         pub fn datetime(&self) -> SystemTime {
-            let stamp = self.timestamp_ms();
-            SystemTime::UNIX_EPOCH + Duration::from_millis(stamp)
+            self.timestamp().system_time()
         }
         /// Creates a Crockford Base32 encoded string that represents this Sulid
         ///
         /// # Example
         /// ```rust
-        /// use sulid::Sulid;
+        /// use sulid::{Sulid, TimestampType};
         ///
         /// let text = "01D39ZY06FGSCTVN4T2V9PKHFZ";
-        /// let sulid = Sulid::from_string(text).unwrap();
+        /// let sulid = Sulid::from_string(text, TimestampType::MS).unwrap();
         ///
         /// assert_eq!(&sulid.to_string(), text);
         /// ```
         #[allow(clippy::inherent_to_string_shadow_display)] // Significantly faster than Display::to_string
         pub fn to_string(&self) -> String {
-            self.0.to_string()
+            self.inner().to_string()
         }
     }
 
@@ -725,7 +779,7 @@ pub(crate) mod std_feature {
 
         #[test]
         fn can_display_things() {
-            println!("{}", Sulid::nil());
+            println!("{}", Sulid::nil(TimestampType::MS));
             println!("{}", EncodeError::BufferTooSmall);
             println!("{}", DecodeError::InvalidLength);
             println!("{}", DecodeError::InvalidChar);
@@ -733,9 +787,10 @@ pub(crate) mod std_feature {
 
         #[test]
         fn test_dynamic() {
-            let sulid = Sulid::v1_new(0, 0);
+            let sulid = Sulid::new(0.into(), TimestampType::MS);
             let encoded = sulid.to_string();
-            let sulid2 = Sulid::from_string(&encoded).expect("failed to deserialize");
+            let sulid2 =
+                Sulid::from_string(&encoded, TimestampType::MS).expect("failed to deserialize");
 
             println!("{}", encoded);
             println!("{:?}", sulid);
@@ -748,10 +803,10 @@ pub(crate) mod std_feature {
             use rand::rngs::mock::StepRng;
             let mut source = StepRng::new(123, 0);
 
-            let u1 = Sulid::with_source(&mut source, 0, 0);
+            let u1 = Sulid::with_source(&mut source, 0.into(), TimestampType::MS);
             let dt = SystemTime::now() + Duration::from_millis(1);
-            let u2 = Sulid::v1_from_datetime_with_source(dt, &mut source, 0, 0);
-            let u3 = Sulid::v1_from_datetime_with_source(dt, &mut source, 0, 0);
+            let u2 = Sulid::from_datetime_source(dt, &mut source, 0.into(), TimestampType::MS);
+            let u3 = Sulid::from_datetime_source(dt, &mut source, 0.into(), TimestampType::MS);
 
             assert!(u1 < u2);
             assert_eq!(u2, u3);
@@ -760,15 +815,16 @@ pub(crate) mod std_feature {
         #[test]
         fn test_order() {
             let dt = SystemTime::now();
-            let sulid1 = Sulid::v1_from_datetime(dt, 0, 0);
-            let sulid2 = Sulid::v1_from_datetime(dt + Duration::from_millis(1), 0, 0);
+            let sulid1 = Sulid::from_datetime(dt, 0.into(), TimestampType::MS);
+            let sulid2 =
+                Sulid::from_datetime(dt + Duration::from_millis(1), 0.into(), TimestampType::MS);
             assert!(sulid1 < sulid2);
         }
 
         #[test]
         fn test_datetime() {
             let dt = SystemTime::now();
-            let sulid = Sulid::v1_from_datetime(dt, 0, 0);
+            let sulid = Sulid::from_datetime(dt, 0.into(), TimestampType::MS);
 
             println!("{:?}, {:?}", dt, sulid.datetime());
             assert!(sulid.datetime() <= dt);
@@ -778,23 +834,21 @@ pub(crate) mod std_feature {
         #[test]
         fn test_timestamp() {
             let dt = SystemTime::now();
-            let sulid = Sulid::v1_from_datetime(dt, 0, 0);
+            let sulid = Sulid::from_datetime(dt, 0.into(), TimestampType::MS);
             let ts = dt
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_millis();
 
-            assert_eq!(u128::from(sulid.timestamp_ms()), ts);
-        }
-
-        #[test]
-        fn default_is_nil() {
-            assert_eq!(Sulid::default(), Sulid::nil());
+            assert_eq!(sulid.timestamp().as_u128(), ts);
         }
 
         #[test]
         fn nil_is_at_unix_epoch() {
-            assert_eq!(Sulid::nil().datetime(), SystemTime::UNIX_EPOCH);
+            assert_eq!(
+                Sulid::nil(TimestampType::MS).datetime(),
+                SystemTime::UNIX_EPOCH
+            );
         }
 
         #[test]
@@ -803,7 +857,7 @@ pub(crate) mod std_feature {
             {
                 assert!(before_epoch < SystemTime::UNIX_EPOCH);
                 assert_eq!(
-                    Sulid::v1_from_datetime(before_epoch, 0, 0).datetime(),
+                    Sulid::from_datetime(before_epoch, 0.into(), TimestampType::MS).datetime(),
                     SystemTime::UNIX_EPOCH
                 );
             } else {

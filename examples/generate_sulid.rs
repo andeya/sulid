@@ -1,17 +1,36 @@
-use sulid::SulidGenerator;
+use sulid::{SulidGenerator, TimestampType};
 
 fn main() {
-    let generator = SulidGenerator::v1_new(1, 1);
+    #[cfg(feature = "std")]
+    {
+        let generator = SulidGenerator::new1(1, 1, TimestampType::MS);
 
-    for _ in 0..3 {
-        let id = generator.generate();
-        println!("SULID-V1: {}", id);
+        for _ in 0..3 {
+            let id = generator.generate();
+            println!("SULID-MS: {}", id);
+        }
+
+        let generator = SulidGenerator::new2(1, TimestampType::US);
+
+        for _ in 0..3 {
+            let id = generator.generate();
+            println!("SULID-US: {}", id);
+        }
     }
+    #[cfg(not(feature = "std"))]
+    {
+        let generator = SulidGenerator::new1(1, 1, TimestampType::MS);
 
-    let generator = SulidGenerator::v2_new(1);
+        for i in 0..3 {
+            let id = generator.generate(1736611200000, i);
+            println!("SULID-MS: {}", id);
+        }
 
-    for _ in 0..3 {
-        let id = generator.generate();
-        println!("SULID-V2: {}", id);
+        let generator = SulidGenerator::new2(1, TimestampType::US);
+
+        for i in 0..3 {
+            let id = generator.generate(1736611200000, i);
+            println!("SULID-US: {}", id);
+        }
     }
 }

@@ -7,26 +7,13 @@ pub use self::no_std_feature::*;
 pub use self::std_feature::*;
 
 mod no_std_feature {
-    use crate::Sulid;
-
-    pub(super) enum Version {
-        V1 {
-            /// The ID of the data center (5 bits).
-            data_center_id: u8,
-            /// The ID of the machine within the data center (5 bits).
-            machine_id: u8,
-        },
-        V2 {
-            /// The ID of the combination of data_center_id and machine_id.
-            worker_id: u16,
-        },
-    }
+    use crate::{Sulid, TimestampType, WorkerId};
 
     /// A struct for generating Snowflake-inspired ULIDs (SULIDs).
     /// This generator combines the benefits of ULID and Snowflake to
     /// ensure unique, lexicographically sortable identifiers across multiple
     /// data centers and machines.
-    pub struct SulidGenerator(pub(super) Version);
+    pub struct SulidGenerator(pub(crate) WorkerId, pub(crate) TimestampType);
 
     impl SulidGenerator {
         /// Creates a new SulidGenerator.
@@ -42,21 +29,24 @@ mod no_std_feature {
         ///
         /// # Example
         ///
+        /// ```rust
+        /// use sulid::{SulidGenerator, TimestampType};
+        /// let generator = SulidGenerator::new1(1, 1, TimestampType::MS);
         /// ```
-        /// use sulid::SulidGenerator;
-        /// let generator = SulidGenerator::v1_new(1, 1);
-        /// ```
-        pub fn v1_new(data_center_id: u8, machine_id: u8) -> Self {
+        pub fn new1(data_center_id: u8, machine_id: u8, ts_type: TimestampType) -> Self {
             // Ensure the data_center_id and machine_id are within the 5-bit range.
             assert!(
                 data_center_id < 32,
                 "data_center_id must be in the range 0-31"
             );
             assert!(machine_id < 32, "machine_id must be in the range 0-31");
-            SulidGenerator(Version::V1 {
-                data_center_id,
-                machine_id,
-            })
+            SulidGenerator(
+                WorkerId::Two {
+                    data_center_id,
+                    machine_id,
+                },
+                ts_type,
+            )
         }
 
         /// Creates a new SulidGenerator.
@@ -72,13 +62,13 @@ mod no_std_feature {
         /// # Example
         ///
         /// ```
-        /// use sulid::SulidGenerator;
-        /// let generator = SulidGenerator::v2_new(1);
+        /// use sulid::{SulidGenerator, TimestampType};
+        /// let generator = SulidGenerator::new2(1, TimestampType::MS);
         /// ```
-        pub fn v2_new(worker_id: u16) -> Self {
+        pub fn new2(worker_id: u16, ts_type: TimestampType) -> Self {
             // Ensure the worker_id is within the 10-bit range.
             assert!(worker_id < 32, "worker_id must be in the range 0-1023");
-            SulidGenerator(Version::V2 { worker_id })
+            SulidGenerator(WorkerId::One(worker_id), ts_type)
         }
 
         /// Generates a new SULID.
@@ -89,24 +79,18 @@ mod no_std_feature {
         /// # Example
         ///
         /// ```
-        /// use sulid::SulidGenerator;
-        /// let generator = SulidGenerator::v1_new(1, 1);
+        /// use sulid::{SulidGenerator, TimestampType};
+        /// let generator = SulidGenerator::new1(1, 1, TimestampType::MS);
         /// let sulid = generator.generate(1, 1);
         /// println!("Generated SULID-V1: {}", sulid);
         ///
-        /// let generator = SulidGenerator::v2_new(1);
+        /// let generator = SulidGenerator::new2(1, TimestampType::MS);
         /// let sulid = generator.generate(1, 1);
         /// println!("Generated SULID-V2: {}", sulid);
         /// ```
         #[cfg(not(feature = "std"))]
-        pub fn generate(&self, timestamp_ms: u64, random: u128) -> Sulid {
-            match self.0 {
-                Version::V1 {
-                    data_center_id,
-                    machine_id,
-                } => Sulid::v1_from_parts(timestamp_ms, random, data_center_id, machine_id),
-                Version::V2 { worker_id } => Sulid::v2_from_parts(timestamp_ms, random, worker_id),
-            }
+        pub fn generate(&self, timestamp: u64, random: u128) -> Sulid {
+            Sulid::from_parts(self.1.new_ts_u64(timestamp), random, self.0)
         }
     }
 
@@ -118,14 +102,14 @@ mod no_std_feature {
         #[test]
         /// Test that two generated SULIDs are unique.
         fn generate_unique_ids() {
-            let generator = SulidGenerator::v1_new(1, 1);
+            let generator = SulidGenerator::new1(1, 1, TimestampType::MS);
 
             let id1 = generator.generate(1, 1);
             let id2 = generator.generate(2, 2);
 
             assert_ne!(id1, id2);
 
-            let generator = SulidGenerator::v2_new(1);
+            let generator = SulidGenerator::new2(1, TimestampType::MS);
 
             let id1 = generator.generate(1, 1);
             let id2 = generator.generate(2, 2);
@@ -136,30 +120,30 @@ mod no_std_feature {
         #[test]
         #[should_panic(expected = "data_center_id must be in the range 0-31")]
         /// Test that creating a SulidGenerator with an out-of-range data_center_id panics.
-        fn v1_data_center_id_out_of_range() {
-            let _ = SulidGenerator::v1_new(32, 1);
+        fn data_center_id_out_of_range() {
+            let _ = SulidGenerator::new1(32, 1, TimestampType::MS);
         }
 
         #[test]
         #[should_panic(expected = "machine_id must be in the range 0-31")]
         /// Test that creating a SulidGenerator with an out-of-range machine_id panics.
-        fn v1_machine_id_out_of_range() {
-            let _ = SulidGenerator::v1_new(1, 32);
+        fn machine_id_out_of_range() {
+            let _ = SulidGenerator::new1(1, 32, TimestampType::MS);
         }
 
         #[test]
         #[should_panic(expected = "worker_id must be in the range 0-1023")]
         /// Test that creating a SulidGenerator with an out-of-range worker_id panics.
-        fn v2_worker_id_out_of_range() {
-            let _ = SulidGenerator::v2_new(1024);
+        fn worker_id_out_of_range() {
+            let _ = SulidGenerator::new2(1024, TimestampType::MS);
         }
     }
 }
 
 #[cfg(feature = "std")]
 mod std_feature {
-    use super::no_std_feature::{SulidGenerator as InnerSulidGenerator, Version};
-    use crate::Sulid;
+    use super::no_std_feature::SulidGenerator as InnerSulidGenerator;
+    use crate::{Sulid, TimestampType};
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use std::sync::Mutex;
@@ -189,12 +173,12 @@ mod std_feature {
         ///
         /// # Example
         ///
+        /// ```rust
+        /// use sulid::{SulidGenerator, TimestampType};
+        /// let generator = SulidGenerator::new1(1, 1, TimestampType::MS);
         /// ```
-        /// use sulid::SulidGenerator;
-        /// let generator = SulidGenerator::v1_new(1, 1);
-        /// ```
-        pub fn v1_new(data_center_id: u8, machine_id: u8) -> Self {
-            let inner = InnerSulidGenerator::v1_new(data_center_id, machine_id);
+        pub fn new1(data_center_id: u8, machine_id: u8, ts_type: TimestampType) -> Self {
+            let inner = InnerSulidGenerator::new1(data_center_id, machine_id, ts_type);
             let rng = Mutex::new(StdRng::from_entropy());
             SulidGenerator { inner, rng }
         }
@@ -211,12 +195,12 @@ mod std_feature {
         ///
         /// # Example
         ///
+        /// ```rust
+        /// use sulid::{SulidGenerator, TimestampType};
+        /// let generator = SulidGenerator::new2(1, TimestampType::MS);
         /// ```
-        /// use sulid::SulidGenerator;
-        /// let generator = SulidGenerator::v2_new(1);
-        /// ```
-        pub fn v2_new(worker_id: u16) -> Self {
-            let inner = InnerSulidGenerator::v2_new(worker_id);
+        pub fn new2(worker_id: u16, ts_type: TimestampType) -> Self {
+            let inner = InnerSulidGenerator::new2(worker_id, ts_type);
             let rng = Mutex::new(StdRng::from_entropy());
             SulidGenerator { inner, rng }
         }
@@ -229,31 +213,18 @@ mod std_feature {
         /// # Example
         ///
         /// ```
-        /// use sulid::SulidGenerator;
-        /// let generator = SulidGenerator::v1_new(1, 1);
+        /// use sulid::{SulidGenerator, TimestampType};
+        /// let generator = SulidGenerator::new1(1, 1, TimestampType::MS);
         /// let sulid = generator.generate();
         /// println!("Generated SULID 1: {}", sulid);
-        /// let generator = SulidGenerator::v2_new(1);
+        /// let generator = SulidGenerator::new2(1, TimestampType::MS);
         /// let sulid = generator.generate();
         /// println!("Generated SULID 2: {}", sulid);
         /// ```
         #[inline]
         pub fn generate(&self) -> Sulid {
             let mut rng = self.rng.lock().unwrap();
-            match self.inner.0 {
-                Version::V1 {
-                    data_center_id,
-                    machine_id,
-                } => Sulid::v1_from_datetime_with_source(
-                    SystemTime::now(),
-                    &mut *rng,
-                    data_center_id,
-                    machine_id,
-                ),
-                Version::V2 { worker_id } => {
-                    Sulid::v2_from_datetime_with_source(SystemTime::now(), &mut *rng, worker_id)
-                }
-            }
+            Sulid::from_datetime_source(SystemTime::now(), &mut *rng, self.inner.0, self.inner.1)
         }
     }
 
@@ -264,14 +235,14 @@ mod std_feature {
         #[test]
         /// Test that two generated SULIDs are unique.
         fn generate_unique_ids() {
-            let generator = SulidGenerator::v1_new(1, 1);
+            let generator = SulidGenerator::new1(1, 1, TimestampType::MS);
 
             let id1 = generator.generate();
             let id2 = generator.generate();
 
             assert_ne!(id1, id2);
 
-            let generator = SulidGenerator::v2_new(1);
+            let generator = SulidGenerator::new2(1, TimestampType::MS);
 
             let id1 = generator.generate();
             let id2 = generator.generate();

@@ -1,6 +1,6 @@
 [package]
 name = "sulid"
-version = "0.6.2"
+version = "0.7.0"
 edition = "2021"
 authors = ["Andeya Lee <andeyalee@outlook.com>"]
 description = "SULID is a unique ID generation algorithm that combines the benefits of ULID and Snowflake."
@@ -15,7 +15,7 @@ ulid = { version = "1.0", default-features = false }
 
 [features]
 default = ["std"]
-# default = []
+# default = ["std", "assert"]
 std = ["ulid/std", "dep:rand"]
 assert = []
 

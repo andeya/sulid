@@ -35,7 +35,7 @@
 //!
 //! Here is a visual breakdown of the SULID format:
 //!
-//! ```
+//! ```notest
 //! | 48-bit Timestamp | 70-bit Random Number | 5-bit Data Center ID | 5-bit Machine ID |
 //! ```
 //!
@@ -46,7 +46,7 @@
 //!
 //! Here is a visual breakdown of the SULID format:
 //!
-//! ```
+//! ```notest
 //! | 48-bit Timestamp | 70-bit Random Number | 10-bit Worker ID |
 //! ```
 //!
@@ -62,10 +62,10 @@
 //! Then, you can generate SULIDs as follows:
 //!
 //! ```rust
-//! use sulid::SulidGenerator;
+//! use sulid::{SulidGenerator, TimestampType};
 //!
 //! fn main() {
-//!     let generator = SulidGenerator::v1_new(1, 1);
+//!     let generator = SulidGenerator::new1(1, 1, TimestampType::MS);
 //!
 //!     for _ in 0..3 {
 //!         #[cfg(feature = "std")]
@@ -75,7 +75,7 @@
 //!         println!("SULID-V1: {}", id);
 //!     }
 //!
-//!     let generator = SulidGenerator::v2_new(1);
+//!     let generator = SulidGenerator::new2(1, TimestampType::MS);
 //!
 //!     for _ in 0..3 {
 //!         #[cfg(feature = "std")]
@@ -88,7 +88,7 @@
 //! ```
 
 pub use generator::SulidGenerator;
-pub use sulid::Sulid;
+pub use sulid::{Sulid, Timestamp, TimestampType, WorkerId};
 // Republic ULID
 pub use ulid;
 pub use ulid::{DecodeError, EncodeError, ULID_LEN};
