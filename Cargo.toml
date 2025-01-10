@@ -14,8 +14,9 @@ rand = { version = "0.8", optional = true }
 ulid = { version = "1.0", default-features = false }
 
 [features]
-default = ["std"]
+# default = ["std"]
 # default = []
+default = ["assert", "std"]
 std = ["ulid/std", "dep:rand"]
 assert = []
 

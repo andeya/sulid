@@ -52,7 +52,7 @@ To use SULID, add the following dependencies to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-sulid = "0.6"
+sulid = "0.7"
 ```
 
 ## Usage
@@ -63,14 +63,14 @@ Here's how you can use the `SulidGenerator` in your project:
 use sulid::SulidGenerator;
 
 fn main() {
-    let generator = SulidGenerator::v1_new(1, 1);
+    let generator = SulidGenerator::new1(1, 1);
 
     for _ in 0..3 {
         let id = generator.generate();
         println!("SULID-V1: {}", id);
     }
 
-    let generator = SulidGenerator::v2_new(1);
+    let generator = SulidGenerator::new2(1);
 
     for _ in 0..3 {
         let id = generator.generate();

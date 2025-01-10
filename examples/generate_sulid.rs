@@ -1,14 +1,14 @@
-use sulid::SulidGenerator;
+use sulid::{SulidGenerator, TimestampType};
 
 fn main() {
-    let generator = SulidGenerator::v1_new(1, 1);
+    let generator = SulidGenerator::new1(1, 1, TimestampType::MS);
 
     for _ in 0..3 {
         let id = generator.generate();
         println!("SULID-V1: {}", id);
     }
 
-    let generator = SulidGenerator::v2_new(1);
+    let generator = SulidGenerator::new2(1, TimestampType::MS);
 
     for _ in 0..3 {
         let id = generator.generate();

@@ -65,7 +65,7 @@
 //! use sulid::SulidGenerator;
 //!
 //! fn main() {
-//!     let generator = SulidGenerator::v1_new(1, 1);
+//!     let generator = SulidGenerator::new1(1, 1);
 //!
 //!     for _ in 0..3 {
 //!         #[cfg(feature = "std")]
@@ -75,7 +75,7 @@
 //!         println!("SULID-V1: {}", id);
 //!     }
 //!
-//!     let generator = SulidGenerator::v2_new(1);
+//!     let generator = SulidGenerator::new2(1);
 //!
 //!     for _ in 0..3 {
 //!         #[cfg(feature = "std")]
@@ -88,7 +88,7 @@
 //! ```
 
 pub use generator::SulidGenerator;
-pub use sulid::Sulid;
+pub use sulid::{Sulid, Timestamp, TimestampType, WorkId};
 // Republic ULID
 pub use ulid;
 pub use ulid::{DecodeError, EncodeError, ULID_LEN};
