@@ -11,7 +11,7 @@ repository = "https://github.com/andeya/sulid"
 
 [dependencies]
 rand = { version = "0.8", optional = true }
-ulid = { version = "1.0", default-features = false }
+ulid = { version = "1.1.4", default-features = false }
 
 [features]
 default = ["std"]
